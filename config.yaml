@@ -1,0 +1,51 @@
+server: github.com
+org: YunoHost-Apps
+
+repositories:
+  - # Filter-out .github repository of other matches
+    include: ['.github']
+
+  - include: ['endi_ynh']
+    exclude: []
+    rulesets:
+      - app_repo
+
+
+rulesets:
+  .default_branch:
+    required_status_checks:
+      strict: false
+      contexts: []
+      checks: [] #TODO: That is where we would require CI checks
+    allow_deletions: false
+    allow_force_pushes: false
+    signed_commits: false
+    enforce_admins: true
+
+    required_pull_request_reviews:
+      dismissal_restrictions:
+      required_approving_review_count: 1
+
+
+  app_repo:
+    branches:
+      # main:
+      master:
+        required_status_checks:
+          strict: false
+          contexts: []
+          checks: []
+        allow_deletions: false
+        allow_force_pushes: false
+        signed_commits: false
+        # lock_branch: false
+
+        # required_status_checks:
+        # enforce_admins:
+        # required_pull_request_reviews:
+        # restrictions:
+        # required_linear_history:
+        # allow_force_pushes:
+        # block_creations:
+        # required_conversation_resolution:
+      testing:
