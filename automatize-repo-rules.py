@@ -4,24 +4,23 @@ Configure an org's repositories rules
 """
 
 import argparse
+import json
 import logging
 import re
 from pathlib import Path
 from typing import Any
 
 import yaml
-from ghapi.all import GhApi, print_summary
+from ghapi.all import GhApi
 
-from libgithub import (connect_github, get_repo_maintainers,
-                       get_repo_protection_info, get_repos, get_repos_maintainers)
-from merge_dicts import merge_list_of_dicts
+from libgithub import (connect_github, get_repos, get_repos_maintainers,
+                       set_repo_default_branch, set_repo_protection_info)
 
 
-def filter_repos(repogroups: list[Any], repos: dict[str, Any]) -> dict[str, list[str]]:
-    repos_with_rules: dict[str, list[str]] = {}
+def match_repos_rules(repogroups: list[Any], repos: dict[str, Any]) -> dict[str, dict[str, Any]]:
+    repos_with_rules: dict[str, dict[str, Any]] = {}
 
     for repo, repoinfo in repos.items():
-        rules = []
         for repogroup in repogroups:
             included = False
             excluded = False
@@ -44,42 +43,31 @@ def filter_repos(repogroups: list[Any], repos: dict[str, Any]) -> dict[str, list
                 logging.info("Repo %s was included by rule %s", repo, include_rule)
 
             if included and not excluded:
-                rules.extend(repogroup.get("rulesets", []))
-
-        if rules:
-            repos_with_rules[repo] = rules
+                repos_with_rules[repo] = repogroup
+                break
 
     return repos_with_rules
 
 
-def setup_repo(api: GhApi, org: str, name: str, rulesets: dict[str, dict[str, Any]]) -> None:
-    rules = merge_list_of_dicts(rulesets.values())
-    for branch, branch_rules in rules.get("branches", {}).items():
+def setup_repo(api: GhApi, org: str, name: str, branches_rules: dict[str, dict[str, Any]]) -> None:
+    for branch, branch_rules in branches_rules.items():
         branch_rules = branch_rules or {}
+        protection_args = branch_rules["branch_protection"]
 
-        # Is required if signed_commit...
-        api.repos.update_branch_protection(
-            org,
-            name,
-            branch,
-            enforce_admins=False,
-            required_pull_request_reviews={},
-            required_status_checks={"strict": False, "contexts": []},
-            restrictions={"users": [], "teams": []},
-            allow_force_pushes=False
-        )
+        set_repo_protection_info(api, org, name, branch, protection_args)
 
-        if "signed_commits" in branch_rules.keys():
-            if branch_rules["signed_commits"]:
-                api.repos.create_commit_signature_protection(org, name, branch)
-            else:
-                api.repos.delete_commit_signature_protection(org, name, branch)
 
-        # api.repos.update_branch_protection(
-        #     org,
-        #     name,
+def replace_maintainers_placeholders(data, maintainers, super_maintainers):
+    # serialize then replace then deserialize
+    data_str = json.dumps(data)
+    maintainers_str = json.dumps(maintainers)
+    super_maintainers_str = json.dumps(super_maintainers)
 
-        # )
+    data_str = data_str.replace('"@maintainers"', maintainers_str)
+    data_str = data_str.replace('"@super-maintainers"', super_maintainers_str)
+
+    data = json.loads(data_str)
+    return data
 
 
 def main() -> None:
@@ -91,7 +79,7 @@ def main() -> None:
     maintainers.add_argument("-f", "--force")
     args = parser.parse_args()
 
-    logging.getLogger().setLevel(logging.WARN)
+    logging.getLogger().setLevel(logging.DEBUG)
 
     config_path = Path(__file__).parent / "config.yaml"
     config = yaml.safe_load(config_path.open("r", encoding="utf-8"))
@@ -100,25 +88,30 @@ def main() -> None:
     api = connect_github()
     # api.debug = print_summary
 
+    all_repos = get_repos(api, org)
+    repos = match_repos_rules(config["repositories"], all_repos)
+
     if args.subcommand == "download_maintainers":
-        all_repos = get_repos(api, org)
-        repos = list(all_repos.keys())
-        get_repos_maintainers(api, org, repos, uncache=True)
+        maintainers_uncache = True
+    else:
+        maintainers_uncache = False
+    repos_list_str = list(all_repos.keys())
+    apps_maintainers = get_repos_maintainers(api, org, repos_list_str, uncache=maintainers_uncache)
 
-    # all_repos = get_repos(api, org)
+    for repo, rules in repos.items():
+        super_maintainers = config["super-maintainers"]
+        app_maintainers = apps_maintainers[repo]
 
-    # repos = filter_repos(config["repositories"], all_repos)
+        branch_rules = {
+            branch: replace_maintainers_placeholders(
+                config["rulesets"][rulename],
+                app_maintainers, super_maintainers)
+            for branch, rulename in rules.get("branches", {}).items()
+        }
+        setup_repo(api, org, repo, branch_rules)
 
-    # for repo, rulenames in repos.items():
-    #     rules = {rule: config["rulesets"][rule] for rule in rulenames}
-    #     setup_repo(api, org, repo, rules)
-
-    # repos_data = parallel(get_repo, all_repos, api, org)
-    # print(yaml.dump(get_repo_protection_info(api, org, "endi_ynh")))
-
-    # print(get_repo_maintainers(api, org, "endi_ynh"))
-    # print(len(repos_data))
-    # print(repos_data[-1])
+        if "default" in rules.keys():
+            set_repo_default_branch(api, org, repo, rules["default"])
 
 
 if __name__ == "__main__":

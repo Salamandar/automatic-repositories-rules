@@ -2,6 +2,8 @@
 
 import base64
 import json
+import logging
+from functools import cache
 from pathlib import Path
 from typing import Any
 from urllib.error import HTTPError
@@ -35,42 +37,6 @@ def connect_github() -> GhApi:
 
     api = GhApi(token=secrets["token"])
     return api
-
-
-@file_cached("cache-repositories.json")
-def get_repos(api: GhApi, org: str) -> dict[str, Any]:
-    """file-cached repo list"""
-    repos_list = pages(api.repos.list_for_org, 8, org).concat().map(lambda x: x.name)
-
-    repos_info = parallel(get_repo_protection_info, repos_list, api, org)
-    repos = {
-        name: info
-        for name, info in repos_info
-    }
-    return repos
-
-
-def get_repo_protection_info(api: GhApi, org: str, repo: str) -> tuple[str, Any]:
-    branches = pages(api.repos.list_branches, 1, org, repo).concat()
-    protections: dict[str, Any] = {}
-    for branch in branches:
-        name = branch.name
-        if branch.get("protected"):
-            protection = api.repos.get_branch_protection(org, repo, name)
-            protections[name] = obj2dict(protection)
-        else:
-            protections[name] = None
-
-    return (repo, protections)
-
-
-def set_repo_protection_info(api: GhApi, org: str, repo: str, branch, info: Any) -> None:
-    api.repos.update_branch_protection(
-        org,
-        repo,
-        branch,
-        **info
-    )
 
 
 def get_repo_maintainers(api: GhApi, org: str, repo: str) -> list[str] | None:
@@ -111,6 +77,46 @@ def get_repo_maintainers(api: GhApi, org: str, repo: str) -> list[str] | None:
     return maintainers
 
 
+def set_repo_protection_info(api: GhApi, org: str, repo: str, branch: str, info: Any) -> None:
+    logging.info("Setting protection for %s / %s / %s", org, repo, branch)
+    api.repos.update_branch_protection(
+        org,
+        repo,
+        branch,
+        **info
+    )
+
+
+def set_repo_default_branch(api: GhApi, org: str, repo: str, branch: str):
+    logging.info("Setting default branch for %s / %s to %s", org, repo, branch)
+    api.repos.update(
+        org,
+        repo,
+        default_branch=branch
+    )
+
+@cache
+@file_cached("cache-repositories.json")
+def get_repos(api: GhApi, org: str) -> dict[str, Any]:
+    def repo_get_branches(api, org, repo):
+        try:
+            branches = [
+                branch["name"]
+                for branch in pages(api.repos.list_branches, 1, org, repo).concat()
+            ]
+            return (repo, branches)
+        except HTTPError:
+            raise
+        except Exception as err:
+            print(f"repo {repo} returned {err}")
+            return (repo, None)
+
+    repos_list = pages(api.repos.list_for_org, 30, org, per_page=30).concat().map(lambda x: x.name)
+
+    result = parallel(repo_get_branches, repos_list, api, org)
+    return dict(result)
+
+
 @file_cached("cache-maintainers.json")
 def get_repos_maintainers(api: GhApi, org: str, repos: list[str]) -> dict[str, list[str]|None]:
     def parallel_maintainers(api, org, repo, *args, **kwargs):
@@ -125,5 +131,4 @@ def get_repos_maintainers(api: GhApi, org: str, repos: list[str]) -> dict[str, l
             print(f"repo {repo} returned {err}")
             return (repo, None)
 
-    maintainers = parallel(parallel_maintainers, repos, api, org)
-    return dict(maintainers)
+    return dict(parallel(parallel_maintainers, repos, api, org))
