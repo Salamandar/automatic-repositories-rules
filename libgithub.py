@@ -64,6 +64,15 @@ def get_repo_protection_info(api: GhApi, org: str, repo: str) -> tuple[str, Any]
     return (repo, protections)
 
 
+def set_repo_protection_info(api: GhApi, org: str, repo: str, branch, info: Any) -> None:
+    api.repos.update_branch_protection(
+        org,
+        repo,
+        branch,
+        **info
+    )
+
+
 def get_repo_maintainers(api: GhApi, org: str, repo: str) -> list[str] | None:
     manifestv = 0
     try:
