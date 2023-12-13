@@ -1,7 +1,7 @@
 server: github.com
 org: YunoHost-Apps
 
-super-maintainers: super-maintainers
+super-maintainers: "super-maintainers"
 
 repositories:
   - # Filter-out .github repository of other matches
@@ -26,16 +26,16 @@ rulesets:
 
       required_pull_request_reviews:
         dismissal_restrictions:
-          users: [] # "@maintainers"
-          teams: [] # ["@super-maintainers"]
+          users: "@maintainers"
+          teams: ["@super-maintainers"]
         required_approving_review_count: 1
         bypass_pull_request_allowances:
-          users: [] # "@maintainers"
-          teams: [] # ["@super-maintainers"]
+          users: "@maintainers"
+          teams: ["@super-maintainers"]
 
       restrictions:
-        users: [] # "@maintainers"
-        teams: [] # ["@super-maintainers"]
+        users: "@maintainers"
+        teams: ["@super-maintainers"]
 
       allow_force_pushes: false
 
@@ -51,16 +51,16 @@ rulesets:
 
       required_pull_request_reviews:
         dismissal_restrictions:
-          users: [] # "@maintainers"
-          teams: [] # ["@super-maintainers"]
+          users: "@maintainers"
+          teams: ["@super-maintainers"]
         required_approving_review_count: 1
         bypass_pull_request_allowances:
-          users: [] # "@maintainers"
-          teams: [] # ["@super-maintainers"]
+          users: "@maintainers"
+          teams: ["@super-maintainers"]
 
       restrictions:
-        users: [] # "@maintainers"
-        teams: [] # ["@super-maintainers"]
+        users: "@maintainers"
+        teams: ["@super-maintainers"]
 
       allow_force_pushes: true
 
