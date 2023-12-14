@@ -3,14 +3,13 @@
 import base64
 import json
 import logging
-from functools import cache
 from pathlib import Path
 from typing import Any
 from urllib.error import HTTPError
 
 import tomlkit
 import yaml
-from fastcore.xtras import obj2dict
+# from fastcore.xtras import obj2dict
 from ghapi.all import GhApi, pages
 
 from parallel import parallel
@@ -95,7 +94,7 @@ def set_repo_default_branch(api: GhApi, org: str, repo: str, branch: str):
         default_branch=branch
     )
 
-@cache
+
 @file_cached("cache-repositories.json")
 def get_repos(api: GhApi, org: str) -> dict[str, Any]:
     def repo_get_branches(api, org, repo):

@@ -11,10 +11,12 @@ from pathlib import Path
 from typing import Any
 
 import yaml
-from ghapi.all import GhApi
+from ghapi.all import GhApi, print_summary
 
 from libgithub import (connect_github, get_repos, get_repos_maintainers,
                        set_repo_default_branch, set_repo_protection_info)
+
+from parallel import parallel
 
 
 def match_repos_rules(repogroups: list[Any], repos: dict[str, Any]) -> dict[str, dict[str, Any]]:
@@ -49,12 +51,17 @@ def match_repos_rules(repogroups: list[Any], repos: dict[str, Any]) -> dict[str,
     return repos_with_rules
 
 
-def setup_repo(api: GhApi, org: str, name: str, branches_rules: dict[str, dict[str, Any]]) -> None:
+def setup_repo(api: GhApi, org: str, repo: str,
+               branches_rules: dict[str, dict[str, Any]],
+               default_branch: str | None) -> None:
     for branch, branch_rules in branches_rules.items():
         branch_rules = branch_rules or {}
         protection_args = branch_rules["branch_protection"]
 
-        set_repo_protection_info(api, org, name, branch, protection_args)
+        set_repo_protection_info(api, org, repo, branch, protection_args)
+
+    if default_branch:
+        set_repo_default_branch(api, org, repo, default_branch)
 
 
 def replace_maintainers_placeholders(data, maintainers, super_maintainers):
@@ -70,8 +77,27 @@ def replace_maintainers_placeholders(data, maintainers, super_maintainers):
     return data
 
 
+def setup_matched_repos(api, org, repos, config, repos_maintainers):
+    super_maintainers = config["super-maintainers"]
+
+    def _setup_repo(api, org, repo_and_rules: tuple[str, Any]):
+        repo, rules = repo_and_rules
+        repo_maintainers = repos_maintainers[repo]
+
+        branch_rules = {
+            branch: replace_maintainers_placeholders(
+                config["rulesets"][rulename],
+                repo_maintainers, super_maintainers)
+            for branch, rulename in rules.get("branches", {}).items()
+        }
+        setup_repo(api, org, repo, branch_rules, rules.get("default"))
+
+    parallel(_setup_repo, repos.items(), api, org)
+
+
 def main() -> None:
     parser = argparse.ArgumentParser()
+    parser.add_argument("-d", "--debug")
     subparsers = parser.add_subparsers(dest="subcommand")
     repositories = subparsers.add_parser("download_repositories")
     repositories.add_argument("-f", "--force")
@@ -79,39 +105,27 @@ def main() -> None:
     maintainers.add_argument("-f", "--force")
     args = parser.parse_args()
 
-    logging.getLogger().setLevel(logging.DEBUG)
+    if args.debug:
+        logging.getLogger().setLevel(logging.DEBUG)
 
     config_path = Path(__file__).parent / "config.yaml"
     config = yaml.safe_load(config_path.open("r", encoding="utf-8"))
 
     org = config["org"]
     api = connect_github()
-    # api.debug = print_summary
+    if args.debug:
+        api.debug = print_summary
 
-    all_repos = get_repos(api, org)
-    repos = match_repos_rules(config["repositories"], all_repos)
+    repositories_uncache = bool(args.subcommand == "download_repositories")
+    maintainers_uncache = bool(args.subcommand == "download_maintainers")
 
-    if args.subcommand == "download_maintainers":
-        maintainers_uncache = True
-    else:
-        maintainers_uncache = False
-    repos_list_str = list(all_repos.keys())
-    apps_maintainers = get_repos_maintainers(api, org, repos_list_str, uncache=maintainers_uncache)
+    all_repos = get_repos(api, org, uncache=repositories_uncache)
+    repos_names = list(all_repos.keys())
+    repos_maintainers = get_repos_maintainers(api, org, repos_names, uncache=maintainers_uncache)
 
-    for repo, rules in repos.items():
-        super_maintainers = config["super-maintainers"]
-        app_maintainers = apps_maintainers[repo]
+    matched_repos = match_repos_rules(config["repositories"], all_repos)
 
-        branch_rules = {
-            branch: replace_maintainers_placeholders(
-                config["rulesets"][rulename],
-                app_maintainers, super_maintainers)
-            for branch, rulename in rules.get("branches", {}).items()
-        }
-        setup_repo(api, org, repo, branch_rules)
-
-        if "default" in rules.keys():
-            set_repo_default_branch(api, org, repo, rules["default"])
+    setup_matched_repos(api, org, matched_repos, config, repos_maintainers)
 
 
 if __name__ == "__main__":
