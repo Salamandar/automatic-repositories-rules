@@ -117,7 +117,7 @@ def get_repos(api: GhApi, org: str) -> dict[str, Any]:
 
 
 @file_cached("cache-maintainers.json")
-def get_repos_maintainers(api: GhApi, org: str, repos: list[str]) -> dict[str, list[str]|None]:
+def get_repos_maintainers(api: GhApi, org: str, repos: list[str]) -> dict[str, list[str] | None]:
     def parallel_maintainers(api, org, repo, *args, **kwargs):
         try:
             return (
