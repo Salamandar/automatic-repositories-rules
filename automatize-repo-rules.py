@@ -19,6 +19,9 @@ from libgithub import (connect_github, get_repos, get_repos_maintainers,
 from parallel import parallel
 
 
+DRY_RUN = False
+
+
 def match_repos_rules(repogroups: list[Any], repos: dict[str, Any]) -> dict[str, dict[str, Any]]:
     repos_with_rules: dict[str, dict[str, Any]] = {}
 
@@ -58,10 +61,17 @@ def setup_repo(api: GhApi, org: str, repo: str,
         branch_rules = branch_rules or {}
         protection_args = branch_rules["branch_protection"]
 
-        set_repo_protection_info(api, org, repo, branch, protection_args)
+        if DRY_RUN:
+            serialized = json.dumps(protection_args, indent=4).replace("\n", "\n    ")
+            print(f"set_repo_protection_info:\n    {org}/{repo}:{branch}\n    {serialized}")
+        else:
+            set_repo_protection_info(api, org, repo, branch, protection_args)
 
     if default_branch:
-        set_repo_default_branch(api, org, repo, default_branch)
+        if DRY_RUN:
+            print("set_repo_default_branch", org, repo, default_branch)
+        else:
+            set_repo_default_branch(api, org, repo, default_branch)
 
 
 def replace_maintainers_placeholders(data, maintainers, super_maintainers):
@@ -97,7 +107,8 @@ def setup_matched_repos(api, org, repos, config, repos_maintainers):
 
 def main() -> None:
     parser = argparse.ArgumentParser()
-    parser.add_argument("-d", "--debug")
+    parser.add_argument("-d", "--debug", action="store_true")
+    parser.add_argument("-n", "--dry-run", action="store_true")
     subparsers = parser.add_subparsers(dest="subcommand")
     repositories = subparsers.add_parser("download_repositories")
     repositories.add_argument("-f", "--force")
@@ -107,6 +118,9 @@ def main() -> None:
 
     if args.debug:
         logging.getLogger().setLevel(logging.DEBUG)
+
+    global DRY_RUN
+    DRY_RUN = args.dry_run
 
     config_path = Path(__file__).parent / "config.yaml"
     config = yaml.safe_load(config_path.open("r", encoding="utf-8"))
